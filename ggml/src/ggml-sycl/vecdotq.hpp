@@ -1417,54 +1417,85 @@ vec_dot_iq4_xs_q8_1(const void *__restrict__ vbq,
 #define VDR_Q2_0_Q8_1_MMVQ      1
 #define VDR_Q1_0_g128_Q8_1_MMVQ 1
 
+// Q2_0 (prism layout): 128 weights/block, 4 Q8_1 sub-blocks per X block.
+// 2-bit codes 00=-1, 01=0, 10=+1, 11=+2 -> stored value (q-1).
+// iqs = 0..3 selects the Q8_1 sub-block (32 activations, 8 packed weight bytes).
+// Identity used: sum_i((c_i - 1) * q8_i) = sum_i(c_i * q8_i) - sum_i(q8_i).
+// We dp4a the *raw* 2-bit codes (in {0,1,2,3}) packed into byte lanes, then
+// fold the (-1) offset into bq8_1->ds.y() (= d_q8 * sum(q8)). This avoids any
+// cross-lane borrow in the spread step.
 static __dpct_inline__ float vec_dot_q2_0_q8_1(
         const void * __restrict__ vbq,
         const block_q8_1 * __restrict__ bq8_1,
         const int & iqs) {
-    // Q1_0 (now prism Q2_0 layout): 128 weights per block, 4 Q8_1 sub-blocks per X block
-    // iqs = 0..3 selects which Q8_1 sub-block (32 activations each)
-    // 2-bit codes 00=-1, 01=0, 10=+1, 11=+2  ->  (q-1)
-    // result = d_q1 * d_q8[iqs] * sum((q-1) * q8_raw)
-    // NOTE: integer mmvq path currently disabled in can_use_mul_mat_vec_q because
-    // QI2_0 was sized for 1-bit packing; before re-enabling, audit QI2_0 (= 8
-    // int32s per block for 2-bit, 32 bytes data) and the mmvq template indexing.
     const block_q2_0 * bq = (const block_q2_0 *) vbq;
     const float d_q1 = (float)(bq->d);
     const sycl::float2 ds8 = bq8_1[iqs].ds.convert<float, sycl::rounding_mode::automatic>();
     const float d_q8 = ds8.x();
-    const int8_t * q8 = bq8_1[iqs].qs;
-    const uint8_t * qs = bq->qs + iqs * 8;  // 8 packed bytes (32 weights) per sub-block
-    int sumi = 0;
-    for (int b = 0; b < 8; ++b) {
-        const uint8_t byte = qs[b];
-        sumi += ((int)((byte >> 0) & 3) - 1) * (int)q8[b*4 + 0];
-        sumi += ((int)((byte >> 2) & 3) - 1) * (int)q8[b*4 + 1];
-        sumi += ((int)((byte >> 4) & 3) - 1) * (int)q8[b*4 + 2];
-        sumi += ((int)((byte >> 6) & 3) - 1) * (int)q8[b*4 + 3];
+    const float s_q8 = ds8.y();   // = d_q8 * sum(q8_raw_i)
+
+    const int qs0 = get_int_b1(bq->qs, 2 * iqs + 0);  // 4 packed bytes -> 16 codes
+    const int qs1 = get_int_b1(bq->qs, 2 * iqs + 1);  // next 4 packed bytes -> 16 codes
+    const int * q8 = (const int *) bq8_1[iqs].qs;    // 32 int8s as 8 int32s
+
+    int raw = 0;
+    #pragma unroll
+    for (int half = 0; half < 2; ++half) {
+        const int w = half ? qs1 : qs0;
+        const int * q8h = q8 + 4 * half;
+
+        const int b0 =  w        & 0xff;
+        const int b1 = (w >>  8) & 0xff;
+        const int b2 = (w >> 16) & 0xff;
+        const int b3 = (w >> 24) & 0xff;
+
+        // Spread 4 two-bit codes (each 0..3) into byte-LSBs of one int.
+        const int w0 = ((b0 & 0x03)      ) | ((b0 & 0x0c) <<  6) | ((b0 & 0x30) << 12) | ((b0 & 0xc0) << 18);
+        const int w1 = ((b1 & 0x03)      ) | ((b1 & 0x0c) <<  6) | ((b1 & 0x30) << 12) | ((b1 & 0xc0) << 18);
+        const int w2 = ((b2 & 0x03)      ) | ((b2 & 0x0c) <<  6) | ((b2 & 0x30) << 12) | ((b2 & 0xc0) << 18);
+        const int w3 = ((b3 & 0x03)      ) | ((b3 & 0x0c) <<  6) | ((b3 & 0x30) << 12) | ((b3 & 0xc0) << 18);
+
+        raw = ggml_sycl_dp4a(w0, q8h[0], raw);
+        raw = ggml_sycl_dp4a(w1, q8h[1], raw);
+        raw = ggml_sycl_dp4a(w2, q8h[2], raw);
+        raw = ggml_sycl_dp4a(w3, q8h[3], raw);
     }
-    return d_q1 * d_q8 * (float)sumi;
+
+    return d_q1 * (d_q8 * (float)raw - s_q8);
 }
 
+// Q1_0_g128: 128 weights/block, 1-bit signed (+1 / -1), 4 Q8_1 sub-blocks per X block.
+// Identity used: sum_i((2*bit_i - 1) * q8_i) = 2 * sum_{bit=1} q8_i - sum_i q8_i,
+// and sum_i q8_i * d_q8 == bq8_1->ds.y(). So one call needs only the selective
+// (bit=1) sum over 32 activations; we build a 0/1 byte-mask per qs byte and dp4a
+// against the q8 ints, then fold in the ds.y() offset once.
 static __dpct_inline__ float vec_dot_q1_0_g128_q8_1(
         const void * __restrict__ vbq,
         const block_q8_1 * __restrict__ bq8_1,
         const int & iqs) {
-    // Q1_0_g128: 128 weights per block, 4 Q8_1 blocks align per X block
-    // iqs = 0..3 selects which Q8_1 block (32 activations each)
-    // result = d_q1 * d_q8[iqs] * sum(sign * q8_raw)
     const block_q1_0_g128 * bq = (const block_q1_0_g128 *) vbq;
     const float d_q1 = (float)(bq->d);
     const sycl::float2 ds8 = bq8_1[iqs].ds.convert<float, sycl::rounding_mode::automatic>();
     const float d_q8 = ds8.x();
-    const int8_t * q8 = bq8_1[iqs].qs;
-    const int base_bit = iqs * 32;
-    float sum = 0.0f;
-    for (int bit = 0; bit < 32; bit++) {
-        const int abs_bit = base_bit + bit;
-        const float sign = ((bq->qs[abs_bit / 8] >> (abs_bit % 8)) & 1) ? 1.0f : -1.0f;
-        sum += sign * (float)q8[bit];
+    const float s_q8 = ds8.y();   // = d_q8 * sum(q8_raw_i)
+
+    const int qs_word = get_int_b1(bq->qs, iqs);   // 4 bytes = 32 sign-bits for this sub-block
+    const int * q8 = (const int *) bq8_1[iqs].qs;  // 32 int8s as 8 int32s
+
+    int sel = 0;
+    #pragma unroll
+    for (int b = 0; b < 4; ++b) {
+        const int z = (qs_word >> (8 * b)) & 0xff;
+
+        // Spread bits 0..3 of z into byte-LSBs of m_lo, bits 4..7 into m_hi.
+        const int m_lo = ((z & 0x01)      ) | ((z & 0x02) <<  7) | ((z & 0x04) << 14) | ((z & 0x08) << 21);
+        const int m_hi = ((z & 0x10) >>  4) | ((z & 0x20) <<  3) | ((z & 0x40) << 10) | ((z & 0x80) << 17);
+
+        sel = ggml_sycl_dp4a(m_lo, q8[2*b + 0], sel);
+        sel = ggml_sycl_dp4a(m_hi, q8[2*b + 1], sel);
     }
-    return d_q1 * d_q8 * sum;
+
+    return 2.0f * d_q1 * d_q8 * (float)sel - d_q1 * s_q8;
 }
 
 #endif // GGML_SYCL_VECDOTQ_HPP
