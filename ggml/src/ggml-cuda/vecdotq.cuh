@@ -106,7 +106,7 @@ static __device__ __forceinline__ uint32_t unpack_ksigns(const uint8_t v) {
 // VDR = vec dot ratio, how many contiguous integers each thread processes when the vec dot kernel is called
 // MMVQ = mul_mat_vec_q, MMQ = mul_mat_q
 
-#define VDR_Q1_0_Q8_1_MMVQ 1
+#define VDR_Q2_0_Q8_1_MMVQ 1
 #define VDR_Q1_0_Q8_1_MMQ  1  // Changed from 2 to 1: Q1_0 has only 32 bits (1 int) per block
 #define VDR_Q1_0_g128_Q8_1_MMVQ 1  // Process one 32-element chunk at a time for parallelism
 #define VDR_Q1_0_g128_Q8_1_MMQ  4  // Q1_0_g128 has 128 bits (4 ints) per block
@@ -720,13 +720,13 @@ static __device__ __forceinline__ float vec_dot_q6_K_q8_1_impl_mmq(
     return d6 * sumf_d;
 }
 
-static __device__ __forceinline__ float vec_dot_q1_0_q8_1(
+static __device__ __forceinline__ float vec_dot_q2_0_q8_1(
     const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
 
-    const block_q1_0 * bq1_0 = (const block_q1_0 *) vbq + kbx;
+    const block_q2_0 * bq1_0 = (const block_q2_0 *) vbq + kbx;
 
-    int v[VDR_Q1_0_Q8_1_MMVQ];
-    int u[8*VDR_Q1_0_Q8_1_MMVQ];
+    int v[VDR_Q2_0_Q8_1_MMVQ];
+    int u[8*VDR_Q2_0_Q8_1_MMVQ];
 
     // Q1_0 has 32 bits per block, stored in 4 bytes
     // Read all 4 bytes and pack into a single int32
@@ -738,7 +738,7 @@ static __device__ __forceinline__ float vec_dot_q1_0_q8_1(
         u[j] = get_int_b4(bq8_1->qs, j);
     }
 
-    return vec_dot_q1_0_q8_1_impl<VDR_Q1_0_Q8_1_MMVQ>(v, u, bq1_0->d, bq8_1->ds);
+    return vec_dot_q1_0_q8_1_impl<VDR_Q2_0_Q8_1_MMVQ>(v, u, bq1_0->d, bq8_1->ds);
 }
 
 static __device__ __forceinline__ float vec_dot_q1_0_g128_q8_1(

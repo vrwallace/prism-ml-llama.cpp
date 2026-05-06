@@ -1,7 +1,7 @@
 #include "common.cuh"
 
 static __device__ __forceinline__ void dequantize_q1_0(const void * vx, const int64_t ib, const int iqs, float2 & v){
-    const block_q1_0 * x = (const block_q1_0 *) vx;
+    const block_q2_0 * x = (const block_q2_0 *) vx;
 
     const float d = x[ib].d;
     const float neg_d = -d;

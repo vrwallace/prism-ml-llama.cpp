@@ -601,12 +601,13 @@ static void convert_unary_sycl(const void * vx, dst_t * y, const int64_t k, dpct
 
 // =========================================================================
 // Q1_0 and Q1_0_g128 SYCL dequantize functions
-// block_q1_0:      { ggml_half d; uint8_t qs[4];  }  32  elements @ 1 bit
+// block_q2_0:      { ggml_half d; uint8_t qs[32]; }  128 elements @ 2 bits (ternary, prism Q2_0 layout)
 // block_q1_0_g128: { ggml_half d; uint8_t qs[16]; }  128 elements @ 1 bit
-// Bit=1 -> +d,  Bit=0 -> -d
+// Q1_0:      2-bit codes 00=-1, 01=0, 10=+1, 11=+2  ->  (q-1)*d
+// Q1_0_g128: 1-bit codes 1=+d, 0=-d
 // =========================================================================
 template <typename dst_t>
-static void dequantize_row_q1_0_sycl(const void * vx, dst_t * y, const int64_t k, dpct::queue_ptr stream) {
+static void dequantize_row_q2_0_sycl(const void * vx, dst_t * y, const int64_t k, dpct::queue_ptr stream) {
     const int64_t num_threads = SYCL_DEQUANTIZE_BLOCK_SIZE;
     const int64_t num_blocks  = (k + num_threads - 1) / num_threads;
     stream->parallel_for(
@@ -615,11 +616,14 @@ static void dequantize_row_q1_0_sycl(const void * vx, dst_t * y, const int64_t k
         [=](sycl::nd_item<3> item_ct1) {
             const int64_t i = item_ct1.get_group(2) * item_ct1.get_local_range(2) + item_ct1.get_local_id(2);
             if (i >= k) return;
-            const block_q1_0 * x = (const block_q1_0 *) vx;
-            const int64_t ib  = i / QK1_0;
-            const int     bit = i % QK1_0;
-            const float   d   = (float)(x[ib].d);
-            y[i] = static_cast<dst_t>(((x[ib].qs[bit / 8] >> (bit % 8)) & 1) ? d : -d);
+            const block_q2_0 * x = (const block_q2_0 *) vx;
+            const int64_t ib          = i / QK2_0;
+            const int     j           = i % QK2_0;
+            const int     byte_index  = j / 4;
+            const int     bit_offset  = (j % 4) * 2;
+            const uint8_t q           = (x[ib].qs[byte_index] >> bit_offset) & 0x03;
+            const float   d           = (float)(x[ib].d);
+            y[i] = static_cast<dst_t>(((int)q - 1) * d);
         });
 }
 
@@ -707,8 +711,8 @@ to_fp16_sycl_t ggml_get_to_fp16_sycl(ggml_type type, ggml_tensor * dst) {
         case GGML_TYPE_BF16:
             return convert_unary_sycl<sycl::ext::oneapi::bfloat16>;
 #endif
-        case GGML_TYPE_Q1_0:
-            return dequantize_row_q1_0_sycl;
+        case GGML_TYPE_Q2_0:
+            return dequantize_row_q2_0_sycl;
         case GGML_TYPE_Q1_0_g128:
             return dequantize_row_q1_0_g128_sycl;
         default:
@@ -781,8 +785,8 @@ to_fp32_sycl_t ggml_get_to_fp32_sycl(ggml_type type, ggml_tensor *dst) {
         case GGML_TYPE_BF16:
             return convert_unary_sycl<sycl::ext::oneapi::bfloat16>;
 #endif
-        case GGML_TYPE_Q1_0:
-            return dequantize_row_q1_0_sycl;
+        case GGML_TYPE_Q2_0:
+            return dequantize_row_q2_0_sycl;
         case GGML_TYPE_Q1_0_g128:
             return dequantize_row_q1_0_g128_sycl;
         default:

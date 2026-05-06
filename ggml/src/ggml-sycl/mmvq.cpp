@@ -1059,16 +1059,16 @@ static void mul_mat_vec_iq4_xs_q8_1_sycl(const void *vx, const void *vy,
 }
 
 
-static void mul_mat_vec_q1_0_q8_1_sycl(const void * vx, const void * vy, float * dst,
+static void mul_mat_vec_q2_0_q8_1_sycl(const void * vx, const void * vy, float * dst,
                                         const int ncols, const int nrows, dpct::queue_ptr stream) {
-    GGML_ASSERT(ncols % QK1_0 == 0);
+    GGML_ASSERT(ncols % QK2_0 == 0);
     const int block_num_y = (nrows + GGML_SYCL_MMV_Y - 1) / GGML_SYCL_MMV_Y;
     const sycl::range<3> block_nums(1, 1, block_num_y);
     const sycl::range<3> block_dims(1, GGML_SYCL_MMV_Y, WARP_SIZE);
     stream->submit([&](sycl::handler & cgh) {
         cgh.parallel_for(sycl::nd_range<3>(block_nums * block_dims, block_dims),
             [=](sycl::nd_item<3> item_ct1) [[sycl::reqd_sub_group_size(WARP_SIZE)]] {
-                mul_mat_vec_q<QK1_0, QI1_0, block_q1_0, VDR_Q1_0_Q8_1_MMVQ, vec_dot_q1_0_q8_1>(
+                mul_mat_vec_q<QK2_0, QI2_0, block_q2_0, VDR_Q2_0_Q8_1_MMVQ, vec_dot_q2_0_q8_1>(
                     vx, vy, dst, ncols, nrows, item_ct1);
             });
     });
@@ -1196,8 +1196,8 @@ void ggml_sycl_op_mul_mat_vec_q(ggml_backend_sycl_context & ctx, const ggml_tens
             case GGML_TYPE_NVFP4:
                 mul_mat_vec_nvfp4_q8_1_sycl(src0_dd_i, src1_ddq_i_bs, dst_dd_i_bs, ne00, row_diff, stream);
                 break;
-            case GGML_TYPE_Q1_0:
-                mul_mat_vec_q1_0_q8_1_sycl(src0_dd_i, src1_ddq_i_bs, dst_dd_i_bs, ne00, row_diff, stream);
+            case GGML_TYPE_Q2_0:
+                mul_mat_vec_q2_0_q8_1_sycl(src0_dd_i, src1_ddq_i_bs, dst_dd_i_bs, ne00, row_diff, stream);
                 break;
             case GGML_TYPE_Q1_0_g128:
                 mul_mat_vec_q1_0_g128_q8_1_sycl(src0_dd_i, src1_ddq_i_bs, dst_dd_i_bs, ne00, row_diff, stream);

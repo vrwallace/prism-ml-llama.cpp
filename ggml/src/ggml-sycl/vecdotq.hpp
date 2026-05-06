@@ -1414,26 +1414,35 @@ vec_dot_iq4_xs_q8_1(const void *__restrict__ vbq,
 }
 
 
-#define VDR_Q1_0_Q8_1_MMVQ      1
+#define VDR_Q2_0_Q8_1_MMVQ      1
 #define VDR_Q1_0_g128_Q8_1_MMVQ 1
 
-static __dpct_inline__ float vec_dot_q1_0_q8_1(
+static __dpct_inline__ float vec_dot_q2_0_q8_1(
         const void * __restrict__ vbq,
         const block_q8_1 * __restrict__ bq8_1,
         const int & iqs) {
-    // Q1_0: 32 weights per block, 1 Q8_1 block aligns per X block
-    // result = d_q1 * d_q8 * sum(sign * q8_raw)
-    const block_q1_0 * bq = (const block_q1_0 *) vbq;
+    // Q1_0 (now prism Q2_0 layout): 128 weights per block, 4 Q8_1 sub-blocks per X block
+    // iqs = 0..3 selects which Q8_1 sub-block (32 activations each)
+    // 2-bit codes 00=-1, 01=0, 10=+1, 11=+2  ->  (q-1)
+    // result = d_q1 * d_q8[iqs] * sum((q-1) * q8_raw)
+    // NOTE: integer mmvq path currently disabled in can_use_mul_mat_vec_q because
+    // QI2_0 was sized for 1-bit packing; before re-enabling, audit QI2_0 (= 8
+    // int32s per block for 2-bit, 32 bytes data) and the mmvq template indexing.
+    const block_q2_0 * bq = (const block_q2_0 *) vbq;
     const float d_q1 = (float)(bq->d);
-    const sycl::float2 ds8 = bq8_1[0].ds.convert<float, sycl::rounding_mode::automatic>();
+    const sycl::float2 ds8 = bq8_1[iqs].ds.convert<float, sycl::rounding_mode::automatic>();
     const float d_q8 = ds8.x();
-    const int8_t * q8 = bq8_1[0].qs;
-    float sum = 0.0f;
-    for (int bit = 0; bit < QK1_0; bit++) {
-        const float sign = ((bq->qs[bit / 8] >> (bit % 8)) & 1) ? 1.0f : -1.0f;
-        sum += sign * (float)q8[bit];
+    const int8_t * q8 = bq8_1[iqs].qs;
+    const uint8_t * qs = bq->qs + iqs * 8;  // 8 packed bytes (32 weights) per sub-block
+    int sumi = 0;
+    for (int b = 0; b < 8; ++b) {
+        const uint8_t byte = qs[b];
+        sumi += ((int)((byte >> 0) & 3) - 1) * (int)q8[b*4 + 0];
+        sumi += ((int)((byte >> 2) & 3) - 1) * (int)q8[b*4 + 1];
+        sumi += ((int)((byte >> 4) & 3) - 1) * (int)q8[b*4 + 2];
+        sumi += ((int)((byte >> 6) & 3) - 1) * (int)q8[b*4 + 3];
     }
-    return d_q1 * d_q8 * sum;
+    return d_q1 * d_q8 * (float)sumi;
 }
 
 static __dpct_inline__ float vec_dot_q1_0_g128_q8_1(

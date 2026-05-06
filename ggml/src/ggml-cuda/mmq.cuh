@@ -11,7 +11,7 @@ using namespace ggml_cuda_mma;
 
 #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor cores are available.
 #define MMQ_ITER_K 256
-#define MMQ_ITER_K_Q1_0 128  // For Q1_0: 32 blocks per row, QI1_0=1, so threads_per_row = 128/(4*1) = 32
+#define MMQ_ITER_K_Q2_0 128  // For Q1_0: 32 blocks per row, QI2_0=1, so threads_per_row = 128/(4*1) = 32
 #define MMQ_ITER_K_MXFP4_FP4    512
 #define MMQ_NWARPS 8
 
@@ -58,7 +58,7 @@ static_assert(sizeof(block_fp4_mmq)  == sizeof(block_q8_1_mmq),    "Unexpected b
 
 static mmq_q8_1_ds_layout mmq_get_q8_1_ds_layout(const ggml_type type_x) {
     switch (type_x) {
-        case GGML_TYPE_Q1_0:
+        case GGML_TYPE_Q2_0:
         case GGML_TYPE_Q1_0_g128:
             return MMQ_Q8_1_DS_LAYOUT_D4;
         case GGML_TYPE_Q4_0:
@@ -235,7 +235,7 @@ static_assert(MMQ_MMA_TILE_X_K_NVFP4 % 8 == 4, "Wrong padding.");
 
 static constexpr __host__ __device__ int mmq_get_mma_tile_x_k(ggml_type type) {
     switch (type) {
-        case GGML_TYPE_Q1_0:    return MMQ_MMA_TILE_X_K_Q8_0;
+        case GGML_TYPE_Q2_0:    return MMQ_MMA_TILE_X_K_Q8_0;
         case GGML_TYPE_Q1_0_g128: return MMQ_MMA_TILE_X_K_Q8_0;
         case GGML_TYPE_Q4_0:    return MMQ_MMA_TILE_X_K_Q8_0;
         case GGML_TYPE_Q4_1:    return MMQ_MMA_TILE_X_K_Q8_1;
@@ -321,12 +321,12 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + 2*MMQ_TILE_NE_K);
-    constexpr int blocks_per_iter = MMQ_ITER_K / QK1_0;
-    constexpr int threads_per_row = blocks_per_iter * QI1_0;
+    constexpr int blocks_per_iter = MMQ_ITER_K / QK2_0;
+    constexpr int threads_per_row = blocks_per_iter * QI2_0;
     constexpr int nrows = warp_size / threads_per_row;
-    constexpr int scale_entries_per_row = blocks_per_iter * (QK1_0 / QK8_1);
+    constexpr int scale_entries_per_row = blocks_per_iter * (QK2_0 / QK8_1);
     const int txi = threadIdx.x % threads_per_row;
-    const int kbx  = txi / QI1_0;
+    const int kbx  = txi / QI2_0;
 
 
 #pragma unroll
@@ -337,7 +337,7 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
             i = min(i, i_max);
         }
 
-        const block_q1_0 * bxi = (const block_q1_0 *) x + kbx0 + i*stride + kbx;
+        const block_q2_0 * bxi = (const block_q2_0 *) x + kbx0 + i*stride + kbx;
 
         // Q1_0 has 32 bits (4 bytes) for 32 elements at 1 bit each
         // Read all 4 bytes safely to avoid alignment issues
@@ -374,7 +374,7 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
             i = min(i, i_max);
         }
 
-        const block_q1_0 * bxi = (const block_q1_0 *) x + kbx0 + i*stride + kbxd;
+        const block_q2_0 * bxi = (const block_q2_0 *) x + kbx0 + i*stride + kbxd;
 
         x_df[i*MMQ_MMA_TILE_X_K_Q8_0 + kbxd] = bxi->d;
     }
@@ -3435,7 +3435,7 @@ template <int mmq_x, int mmq_y, bool need_check, ggml_type type>
 struct mmq_type_traits;
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q1_0> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q2_0> {
     static constexpr int              vdr          = VDR_Q1_0_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q1_0<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
@@ -4314,7 +4314,7 @@ void mul_mat_q_case(ggml_backend_cuda_context & ctx, const mmq_args & args, cuda
 #define DECL_MMQ_CASE(type)                                                        \
     template void mul_mat_q_case<type>(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) \
 
-extern DECL_MMQ_CASE(GGML_TYPE_Q1_0);
+extern DECL_MMQ_CASE(GGML_TYPE_Q2_0);
 extern DECL_MMQ_CASE(GGML_TYPE_Q1_0_g128);
 extern DECL_MMQ_CASE(GGML_TYPE_Q4_0);
 extern DECL_MMQ_CASE(GGML_TYPE_Q4_1);

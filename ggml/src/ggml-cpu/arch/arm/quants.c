@@ -137,8 +137,8 @@ void quantize_row_q8_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, in
 
 //===================================== Dot products =================================
 
-void ggml_vec_dot_q1_0_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
-    const int qk = QK1_0;
+void ggml_vec_dot_q2_0_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    const int qk = QK2_0;
     const int nb = n / qk;
 
     assert(n % qk == 0);
@@ -148,56 +148,54 @@ void ggml_vec_dot_q1_0_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const voi
     UNUSED(by);
     UNUSED(bs);
 
-    const block_q1_0 * GGML_RESTRICT x = vx;
+    const block_q2_0 * GGML_RESTRICT x = vx;
     const block_q8_0 * GGML_RESTRICT y = vy;
 
     float sumf = 0.0f;
 
 #if defined(__ARM_NEON)
+    // Q1_0 is now prism's Q2_0 layout: 128-element block, 4 Q8_0 sub-blocks per Q1_0 block
+    static const uint8_t tbl_idx_lo[16] = {0,0,0,0, 1,1,1,1, 2,2,2,2, 3,3,3,3};
+    static const uint8_t tbl_idx_hi[16] = {4,4,4,4, 5,5,5,5, 6,6,6,6, 7,7,7,7};
+    static const int8_t  shift_vals[16] = {0,-2,-4,-6, 0,-2,-4,-6, 0,-2,-4,-6, 0,-2,-4,-6};
+
+    const uint8x16_t idx_lo = vld1q_u8(tbl_idx_lo);
+    const uint8x16_t idx_hi = vld1q_u8(tbl_idx_hi);
+    const int8x16_t  shifts = vld1q_s8(shift_vals);
+    const uint8x16_t mask2  = vdupq_n_u8(0x03);
+    const int8x16_t  one    = vdupq_n_s8(1);
+
     float32x4_t sumv = vdupq_n_f32(0.0f);
 
     for (int i = 0; i < nb; i++) {
         const float d0 = GGML_CPU_FP16_TO_FP32(x[i].d);
-        const float d1 = GGML_CPU_FP16_TO_FP32(y[i].d);
 
-        const uint8_t * bits = x[i].qs;
+        for (int k = 0; k < 4; k++) {
+            const block_q8_0 * GGML_RESTRICT yb = &y[i * 4 + k];
+            const float d1 = GGML_CPU_FP16_TO_FP32(yb->d);
 
-        const int8x16_t y0 = vld1q_s8(y[i].qs);
-        const int8x16_t y1 = vld1q_s8(y[i].qs + 16);
+            const uint8x8_t  raw   = vld1_u8(&x[i].qs[k * 8]);
+            const uint8x16_t raw16 = vcombine_u8(raw, raw);
 
-        const uint64_t expand0 = table_b2b_0[bits[0]];
-        const uint64_t expand1 = table_b2b_0[bits[1]];
-        const uint64_t expand2 = table_b2b_0[bits[2]];
-        const uint64_t expand3 = table_b2b_0[bits[3]];
+            uint8x16_t bytes0 = vqtbl1q_u8(raw16, idx_lo);
+            int8x16_t  qv0    = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(vshlq_u8(bytes0, shifts), mask2)), one);
 
-        uint8x8_t e0 = vcreate_u8(expand0);
-        uint8x8_t e1 = vcreate_u8(expand1);
-        uint8x8_t e2 = vcreate_u8(expand2);
-        uint8x8_t e3 = vcreate_u8(expand3);
+            uint8x16_t bytes1 = vqtbl1q_u8(raw16, idx_hi);
+            int8x16_t  qv1    = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(vshlq_u8(bytes1, shifts), mask2)), one);
 
-        int8x8_t s0 = vreinterpret_s8_u8(vshr_n_u8(e0, 4));
-        int8x8_t s1 = vreinterpret_s8_u8(vshr_n_u8(e1, 4));
-        int8x8_t s2 = vreinterpret_s8_u8(vshr_n_u8(e2, 4));
-        int8x8_t s3 = vreinterpret_s8_u8(vshr_n_u8(e3, 4));
+            const int8x16_t y0 = vld1q_s8(yb->qs);
+            const int8x16_t y1 = vld1q_s8(yb->qs + 16);
 
-        int8x8_t one = vdup_n_s8(1);
-        s0 = vsub_s8(vadd_s8(s0, s0), one);
-        s1 = vsub_s8(vadd_s8(s1, s1), one);
-        s2 = vsub_s8(vadd_s8(s2, s2), one);
-        s3 = vsub_s8(vadd_s8(s3, s3), one);
+            int32x4_t p0 = ggml_vdotq_s32(vdupq_n_s32(0), qv0, y0);
+            int32x4_t p1 = ggml_vdotq_s32(p0, qv1, y1);
 
-        int8x16_t signs0 = vcombine_s8(s0, s1);
-        int8x16_t signs1 = vcombine_s8(s2, s3);
-
-        int32x4_t p0 = ggml_vdotq_s32(vdupq_n_s32(0), signs0, y0);
-        int32x4_t p1 = ggml_vdotq_s32(p0, signs1, y1);
-
-        sumv = vmlaq_n_f32(sumv, vcvtq_f32_s32(p1), d0 * d1);
+            sumv = vmlaq_n_f32(sumv, vcvtq_f32_s32(p1), d0 * d1);
+        }
     }
 
     sumf = vaddvq_f32(sumv);
 #else
-    ggml_vec_dot_q1_0_q8_0_generic(n, &sumf, bs, vx, bx, vy, by, 1);
+    ggml_vec_dot_q2_0_q8_0_generic(n, &sumf, bs, vx, bx, vy, by, 1);
 #endif
 
     *s = sumf;
