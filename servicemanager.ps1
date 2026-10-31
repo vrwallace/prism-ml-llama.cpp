@@ -23,19 +23,34 @@ if (-not $isAdmin -and $Action -eq "menu") {
     exit
 }
 
-$GemmaDir    = "C:\Users\vonwa\.gemini\antigravity\scratch\llama_gemma"
-$BonsaiDir   = "C:\Users\vonwa\.gemini\antigravity\scratch\prism_cuda"
-$ModelsDir   = Join-Path $GemmaDir "models"
-$ConfigFile  = Join-Path $GemmaDir "winsw_manager_config.json"
+$ScriptDir   = $PSScriptRoot
+if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
+
+# Dynamic portable path discovery: check local folder first, then fallback to scratch locations
+$BonsaiDir   = if (Test-Path (Join-Path $ScriptDir "bin\llama-server.exe")) { $ScriptDir } `
+               elseif (Test-Path (Join-Path $ScriptDir "build\bin\Release\llama-server.exe")) { Join-Path $ScriptDir "build\bin\Release" } `
+               elseif (Test-Path "C:\Users\vonwa\.gemini\antigravity\scratch\prism_cuda\bin\llama-server.exe") { "C:\Users\vonwa\.gemini\antigravity\scratch\prism_cuda" } `
+               else { $ScriptDir }
+
+$GemmaDir    = if (Test-Path "C:\Users\vonwa\.gemini\antigravity\scratch\llama_gemma\Gemma4Service.exe") { "C:\Users\vonwa\.gemini\antigravity\scratch\llama_gemma" } `
+               else { $BonsaiDir }
+
+$ModelsDir   = if (Test-Path (Join-Path $GemmaDir "models")) { Join-Path $GemmaDir "models" } `
+               elseif (Test-Path (Join-Path $ScriptDir "models")) { Join-Path $ScriptDir "models" } `
+               else { Join-Path $BonsaiDir "models" }
+
+$ConfigFile  = if (Test-Path (Join-Path $ScriptDir "winsw_manager_config.json")) { Join-Path $ScriptDir "winsw_manager_config.json" } `
+               elseif (Test-Path (Join-Path $GemmaDir "winsw_manager_config.json")) { Join-Path $GemmaDir "winsw_manager_config.json" } `
+               else { Join-Path $ScriptDir "winsw_manager_config.json" }
 
 $GemmaExe    = Join-Path $GemmaDir "Gemma4Service.exe"
 $GemmaXml    = Join-Path $GemmaDir "Gemma4Service.xml"
 
-$BonsaiExe   = Join-Path $BonsaiDir "Bonsai2Service.exe"
-$BonsaiXml   = Join-Path $BonsaiDir "Bonsai2Service.xml"
+$BonsaiExe   = if (Test-Path (Join-Path $BonsaiDir "Bonsai2Service.exe")) { Join-Path $BonsaiDir "Bonsai2Service.exe" } else { Join-Path $ScriptDir "Bonsai2Service.exe" }
+$BonsaiXml   = if (Test-Path (Join-Path $BonsaiDir "Bonsai2Service.xml")) { Join-Path $BonsaiDir "Bonsai2Service.xml" } else { Join-Path $ScriptDir "Bonsai2Service.xml" }
 
-$LlamaBench  = Join-Path $BonsaiDir "bin\llama-bench.exe"
-$LlamaCli    = Join-Path $BonsaiDir "bin\llama-cli.exe"
+$LlamaBench  = if (Test-Path (Join-Path $BonsaiDir "bin\llama-bench.exe")) { Join-Path $BonsaiDir "bin\llama-bench.exe" } else { Join-Path $ScriptDir "bin\llama-bench.exe" }
+$LlamaCli    = if (Test-Path (Join-Path $BonsaiDir "bin\llama-cli.exe")) { Join-Path $BonsaiDir "bin\llama-cli.exe" } else { Join-Path $ScriptDir "bin\llama-cli.exe" }
 
 # Default State Config
 $State = @{
