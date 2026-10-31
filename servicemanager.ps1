@@ -41,9 +41,9 @@ $LlamaCli    = Join-Path $BonsaiDir "bin\llama-cli.exe"
 $State = @{
     GemmaPort     = 8081
     BonsaiPort    = 8080
-    BonsaiVariant = "PQ2_0"  # PQ2_0 (6.70 GiB, Fastest Prompt/Decode) or PTQ1_0 (5.54 GiB, Lowest VRAM)
-    BonsaiCtx     = 81920    # 32768 (32K), 65536 (64K), 81920 (80K q8_0), 131072 (128K q4_0), or 262144 (262K Max)
-    BonsaiKvType  = "q8_0"   # q8_0 (8-bit near-lossless KV up to 80K) or q4_0 (4-bit KV for 128K/262K)
+    BonsaiVariant = "PTQ1_0"  # PTQ1_0 (5.95 GiB, Lowest VRAM, up to 72K f16 ctx) or PQ2_0 (7.21 GiB, up to 48K f16 ctx)
+    BonsaiCtx     = 70000    # 70000 f16 default for PTQ1_0 (or 48000 for PQ2_0)
+    BonsaiKvType  = "f16"    # f16 (unquantized 16-bit KV required to avoid Flash Attention /////// loops)
     BonsaiNgram   = $false   # OFF by default on Bonsai 2 (GDN recurrent layers do not allocate n_rs_seq for ngram-simple)
 }
 
@@ -110,6 +110,7 @@ function Update-BonsaiXml {
     param([string]$StartMode = "Automatic")
     $modelFile = "Ternary-Bonsai-2-27B-$($State.BonsaiVariant).gguf"
     $modelPath = Join-Path $ModelsDir $modelFile
+    $kvFlags   = if ($State.BonsaiKvType -and $State.BonsaiKvType -ne "f16") { " -ctk $($State.BonsaiKvType) -ctv $($State.BonsaiKvType)" } else { "" }
     $specFlags = if ($State.BonsaiNgram) { " --spec-type ngram-simple --spec-ngram-simple-size-m 7" } else { "" }
     $xml = @"
 <service>
@@ -117,7 +118,7 @@ function Update-BonsaiXml {
   <name>Ternary Bonsai 2 27B llama.cpp Service</name>
   <description>Native Windows Service (WinSW) for PrismML Ternary Bonsai 2 27B ($($State.BonsaiVariant)) with CUDA 13.4 GPU acceleration</description>
   <executable>$BonsaiDir\bin\llama-server.exe</executable>
-  <arguments>-m "$modelPath" --host 0.0.0.0 --port $($State.BonsaiPort) -c $($State.BonsaiCtx) -ctk $($State.BonsaiKvType) -ctv $($State.BonsaiKvType) -ngl 99 -fa on -t 16 -b 2048 -ub 1024 --reasoning off --reasoning-budget 0$specFlags --temp 0.7 --top-p 0.80 --top-k 20 --min-p 0.0 --repeat-penalty 1.10 --frequency-penalty 0.3 --presence-penalty 0.2 --dry-multiplier 0.8</arguments>
+  <arguments>-m "$modelPath" --host 0.0.0.0 --port $($State.BonsaiPort) -c $($State.BonsaiCtx)$kvFlags -np 1 --cache-ram 8192 -ngl 99 -fa on -t 16 -b 2048 -ub 1024 --reasoning off --reasoning-budget 0$specFlags --temp 0.7 --top-p 0.80 --top-k 20 --min-p 0.0 --presence-penalty 1.5</arguments>
   <workingdirectory>$BonsaiDir</workingdirectory>
   <logpath>$BonsaiDir\logs</logpath>
   <log mode="roll"></log>
@@ -352,6 +353,10 @@ function Show-Menu {
             }
             "2" {
                 $State.BonsaiVariant = "PTQ1_0"
+                if ($State.BonsaiCtx -lt 70000) {
+                    $State.BonsaiCtx = 70000
+                }
+                $State.BonsaiKvType = "f16"
                 Save-Config
                 Stop-GemmaService
                 Stop-BonsaiService
@@ -360,6 +365,11 @@ function Show-Menu {
             }
             "3" {
                 $State.BonsaiVariant = "PQ2_0"
+                if ($State.BonsaiCtx -gt 48000) {
+                    Write-Host "[!] Note: PQ2_0 uses 7.21 GB VRAM. Auto-capping context to 48,000 (f16) to fit 12 GB VRAM..." -ForegroundColor Yellow
+                    $State.BonsaiCtx = 48000
+                }
+                $State.BonsaiKvType = "f16"
                 Save-Config
                 Stop-GemmaService
                 Stop-BonsaiService
@@ -391,29 +401,34 @@ function Show-Menu {
             "K" {
                 Write-Host ""
                 Write-Host "Select Bonsai 2 Context Window Size (RTX 4070 Ti 12 GB VRAM):" -ForegroundColor Cyan
-                Write-Host "  [1]  32,768 ( 32K) - q8_0 KV Cache (~1.0 GiB KV VRAM, Fastest Short/Med Context)"
-                Write-Host "  [2]  65,536 ( 64K) - q8_0 KV Cache (~2.1 GiB KV VRAM, 8-bit High Precision)"
-                Write-Host "  [3]  81,920 ( 80K) - q8_0 KV Cache (~2.6 GiB KV VRAM, Recommended Max 8-bit Precision for PQ2_0)"
-                Write-Host "  [4] 131,072 (128K) - q4_0 KV Cache (~2.25 GiB KV VRAM, 4-bit Ultra-Long Context)"
-                Write-Host "  [5] 262,144 (262K) - q4_0 KV Cache (~4.50 GiB KV VRAM, Full Model Max - Best with PTQ1_0)"
-                $cSel = (Read-Host "Choose [1-5]").Trim()
+                Write-Host "  [1]  32,768 ( 32K)  - f16 KV Cache (~2.0 GiB KV VRAM - Fast & Stable for both PQ2_0 and PTQ1_0)"
+                Write-Host "  [2]  48,000 ( 48K)  - f16 KV Cache (~3.0 GiB KV VRAM - Max safe limit for PQ2_0 7.21GB)"
+                Write-Host "  [3]  65,536 ( 64K)  - f16 KV Cache (~4.1 GiB KV VRAM - Standard 64K for PTQ1_0 5.95GB)"
+                Write-Host "  [4]  70,000 ( 70K)  - f16 KV Cache (~4.38 GiB KV VRAM - Recommended for DeepSeek Harness on PTQ1_0)"
+                Write-Host "  [5]  72,000 ( 72K)  - f16 KV Cache (~4.50 GiB KV VRAM - Maximum tested VRAM limit for PTQ1_0)"
+                Write-Host "  [C] Custom Context  - Type any exact token number (e.g. 68000, 70000)"
+                $cSel = (Read-Host "Choose [1-5 or C]").Trim().ToUpper()
                 switch ($cSel) {
-                    "1" { $State.BonsaiCtx = 32768;  $State.BonsaiKvType = "q8_0" }
-                    "2" { $State.BonsaiCtx = 65536;  $State.BonsaiKvType = "q8_0" }
-                    "3" { $State.BonsaiCtx = 81920;  $State.BonsaiKvType = "q8_0" }
-                    "4" { $State.BonsaiCtx = 131072; $State.BonsaiKvType = "q4_0" }
-                    "5" {
-                        $State.BonsaiCtx = 262144
-                        $State.BonsaiKvType = "q4_0"
-                        if ($State.BonsaiVariant -eq "PQ2_0") {
-                            Write-Host "[i] Note: 262K context uses ~4.5 GiB KV cache. Switching variant to PTQ1_0 (5.54 GiB) is recommended if VRAM is tight." -ForegroundColor Yellow
+                    "1" { $State.BonsaiCtx = 32768;  $State.BonsaiKvType = "f16" }
+                    "2" { $State.BonsaiCtx = 48000;  $State.BonsaiKvType = "f16" }
+                    "3" { $State.BonsaiCtx = 65536;  $State.BonsaiKvType = "f16" }
+                    "4" { $State.BonsaiCtx = 70000;  $State.BonsaiKvType = "f16" }
+                    "5" { $State.BonsaiCtx = 72000;  $State.BonsaiKvType = "f16" }
+                    "C" {
+                        $cVal = Read-Host "Enter custom context size (e.g. 65600, 68000, 70000)"
+                        if ($cVal -match '^\d+$' -and [int]$cVal -gt 1024) {
+                            $State.BonsaiCtx = [int]$cVal
+                            $State.BonsaiKvType = "f16"
+                            Write-Host "[i] Custom context set to $($State.BonsaiCtx) with pure f16 KV cache." -ForegroundColor Cyan
+                        } else {
+                            Write-Host "[!] Invalid number. Keeping $($State.BonsaiCtx)." -ForegroundColor Yellow
                         }
                     }
                 }
                 Save-Config
                 Update-BonsaiXml
-                Write-Host "[SUCCESS] Updated Bonsai2Service context to $($State.BonsaiCtx) (-ctk $($State.BonsaiKvType) -ctv $($State.BonsaiKvType))!" -ForegroundColor Green
-                Write-Host "[i] Select [3] or [2] from the menu to restart Bonsai2Service with the new context." -ForegroundColor Yellow
+                Write-Host "[SUCCESS] Updated Bonsai2Service context to $($State.BonsaiCtx) (KV=$($State.BonsaiKvType))!" -ForegroundColor Green
+                Write-Host "[i] Select [2] or [3] from the menu to restart Bonsai 2 with the new context." -ForegroundColor Yellow
                 Pause-Console
             }
             "N" {
