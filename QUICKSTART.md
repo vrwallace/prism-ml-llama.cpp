@@ -23,7 +23,11 @@ The installer will:
 ```bash
 ./download_models.sh
 ```
-Choose `[1]` for `PTQ1_0` (5.95 GB), `[2]` for `PQ2_0` (7.21 GB), or `[A]` for all recommended files (including the multimodal vision projector).
+Choose `[1]` for `PTQ1_0` (5.95 GB), `[2]` for `PQ2_0` (7.21 GB), `[5]` for the `DSpark Drafter` (1.95 GB), or `[A]` for all recommended files (including the multimodal vision projector and DSpark speculative drafter).
+
+> [!TIP]
+> **Combining Bonsai 2 with DSpark Drafter (2x–3x Speed Boost)**:
+> Downloading `Ternary-Bonsai-27B-dspark-Q4_1.gguf` enables speculative parallel block decoding. It generates candidate token blocks in parallel, boosting generation speed on your RTX 4070 Ti from **42 tok/s up to 80–110+ tok/s** while using only ~7.9 GB total VRAM! Toggle it in Service Manager via option `[S]` (Linux) or `[N]` (Windows).
 
 ### 3. Launch Service Manager
 ```bash

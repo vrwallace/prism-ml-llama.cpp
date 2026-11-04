@@ -126,7 +126,15 @@ function Update-BonsaiXml {
     $modelFile = "Ternary-Bonsai-2-27B-$($State.BonsaiVariant).gguf"
     $modelPath = Join-Path $ModelsDir $modelFile
     $kvFlags   = if ($State.BonsaiKvType -and $State.BonsaiKvType -ne "f16") { " -ctk $($State.BonsaiKvType) -ctv $($State.BonsaiKvType)" } else { "" }
-    $specFlags = if ($State.BonsaiNgram) { " --spec-type ngram-simple --spec-ngram-simple-size-m 7" } else { "" }
+    
+    $draftFile = "Ternary-Bonsai-27B-dspark-Q4_1.gguf"
+    $draftPath = Join-Path $ModelsDir $draftFile
+    $specFlags = if ($State.BonsaiNgram -and (Test-Path $draftPath)) {
+        " -md `"$draftPath`" --spec-type draft-dspark"
+    } elseif ($State.BonsaiNgram) {
+        " --spec-type ngram-simple --spec-ngram-simple-size-m 7"
+    } else { "" }
+
     $xml = @"
 <service>
   <id>Bonsai2Service</id>
@@ -205,7 +213,11 @@ function Show-Dashboard {
     $bPortInfo = Get-PortDetails -Port $State.BonsaiPort
     $bSize = if ($State.BonsaiVariant -eq "PTQ1_0") { "5.95 GB" } else { "7.21 GB" }
     $ctxK  = [math]::Round($State.BonsaiCtx / 1024)
-    $ngStr = if ($State.BonsaiNgram) { "ON (m=7)" } else { "OFF" }
+    $draftFile = "Ternary-Bonsai-27B-dspark-Q4_1.gguf"
+    $hasDraft  = Test-Path (Join-Path $ModelsDir $draftFile)
+    $ngStr = if ($State.BonsaiNgram -and $hasDraft) { "ON (DSpark Drafter: 2x-3x Speed)" }
+             elseif ($State.BonsaiNgram) { "ON (ngram-simple)" }
+             else { "OFF" }
 
     Write-Host (" [2] Bonsai2Service (Ternary Bonsai 2 27B {0} - {1}) | Port: {2,-5} | " -f $State.BonsaiVariant, $bSize, $State.BonsaiPort) -NoNewline -ForegroundColor White
     if ($bPortInfo) {
@@ -214,7 +226,7 @@ function Show-Dashboard {
     } else {
         Write-Host ("STOPPED (WinSW: {0})" -f $bStat) -ForegroundColor DarkYellow
     }
-    Write-Host ("     -> Context: {0} ({1}K, KV={2}) | N-Gram Speculative: {3} | Thinking: OFF" -f $State.BonsaiCtx, $ctxK, $State.BonsaiKvType, $ngStr) -ForegroundColor Gray
+    Write-Host ("     -> Context: {0} ({1}K, KV={2}) | Speculative: {3} | Thinking: OFF" -f $State.BonsaiCtx, $ctxK, $State.BonsaiKvType, $ngStr) -ForegroundColor Gray
 
     Write-Host "================================================================================" -ForegroundColor Cyan
 }
@@ -450,9 +462,13 @@ function Show-Menu {
                 $State.BonsaiNgram = -not $State.BonsaiNgram
                 Save-Config
                 Update-BonsaiXml
-                $st = if ($State.BonsaiNgram) { "ENABLED (--spec-type ngram-simple --spec-ngram-simple-size-m 7)" } else { "DISABLED" }
-                Write-Host "[SUCCESS] N-Gram Speculative Decoding is now $st." -ForegroundColor Green
-                Write-Host "[i] Select [3] or [2] from the menu to restart Bonsai2Service." -ForegroundColor Yellow
+                $draftFile = "Ternary-Bonsai-27B-dspark-Q4_1.gguf"
+                $hasDraft  = Test-Path (Join-Path $ModelsDir $draftFile)
+                $st = if ($State.BonsaiNgram -and $hasDraft) { "ENABLED with DSpark Drafter (-md $draftFile --spec-type draft-dspark for 2x-3x speed)" }
+                      elseif ($State.BonsaiNgram) { "ENABLED (ngram-simple - note: download DSpark drafter via download_models.ps1 for best speed)" }
+                      else { "DISABLED" }
+                Write-Host "[SUCCESS] Speculative Decoding is now $st." -ForegroundColor Green
+                Write-Host "[i] Select [2] or [3] from the menu to restart Bonsai2Service." -ForegroundColor Yellow
                 Pause-Console
             }
             "P" {

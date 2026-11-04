@@ -52,10 +52,11 @@ echo -e "  [1] Bonsai 2 27B PTQ1_0  (5.95 GB - Lowest VRAM, Recommended for RTX 
 echo -e "  [2] Bonsai 2 27B PQ2_0   (7.21 GB - Fastest Prompt/Decode, Fits 12GB VRAM at 48K ctx)"
 echo -e "  [3] Bonsai 2 Vision Proj (0.63 GB - Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf for Multimodal)"
 echo -e "  [4] Gemma 4 12B Q4_K_M   (7.66 GB - Google Gemma 4 IT)"
-echo -e "  [A] Download ALL recommended Bonsai 2 files (PTQ1_0 + PQ2_0 + Vision Projector)"
+echo -e "  [5] DSpark Drafter Q4_1  (1.95 GB - Ternary-Bonsai-27B-dspark-Q4_1.gguf for 2x-3x Speculative Speed)"
+echo -e "  [A] Download ALL recommended Bonsai 2 files (PTQ1_0 + PQ2_0 + Vision Projector + DSpark Drafter)"
 echo -e "  [Q] Quit"
 echo ""
-read -rp "Select option [1/2/3/4/A/Q]: " choice
+read -rp "Select option [1/2/3/4/5/A/Q]: " choice
 
 choice=$(echo "${choice}" | tr '[:lower:]' '[:upper:]')
 
@@ -84,10 +85,30 @@ case "${choice}" in
             "${MODELS_DIR}/gemma-4-12B-it-Q4_K_M.gguf" \
             "gemma-4-12B-it-Q4_K_M.gguf"
         ;;
+    5)
+        download_file \
+            "https://huggingface.co/prism-ml/Ternary-Bonsai-27B-gguf/resolve/main/Ternary-Bonsai-27B-dspark-Q4_1.gguf" \
+            "${MODELS_DIR}/Ternary-Bonsai-27B-dspark-Q4_1.gguf" \
+            "Ternary-Bonsai-27B-dspark-Q4_1.gguf"
+        ;;
     A)
         download_file \
             "https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-GGUF/resolve/main/Ternary-Bonsai-2-27B-PTQ1_0.gguf" \
             "${MODELS_DIR}/Ternary-Bonsai-2-27B-PTQ1_0.gguf" \
+            "Ternary-Bonsai-2-27B-PTQ1_0.gguf"
+        download_file \
+            "https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-GGUF/resolve/main/Ternary-Bonsai-2-27B-PQ2_0.gguf" \
+            "${MODELS_DIR}/Ternary-Bonsai-2-27B-PQ2_0.gguf" \
+            "Ternary-Bonsai-2-27B-PQ2_0.gguf"
+        download_file \
+            "https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-GGUF/resolve/main/Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf" \
+            "${MODELS_DIR}/Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf" \
+            "Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf"
+        download_file \
+            "https://huggingface.co/prism-ml/Ternary-Bonsai-27B-gguf/resolve/main/Ternary-Bonsai-27B-dspark-Q4_1.gguf" \
+            "${MODELS_DIR}/Ternary-Bonsai-27B-dspark-Q4_1.gguf" \
+            "Ternary-Bonsai-27B-dspark-Q4_1.gguf"
+        ;;
             "Ternary-Bonsai-2-27B-PTQ1_0.gguf"
         download_file \
             "https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-GGUF/resolve/main/Ternary-Bonsai-2-27B-PQ2_0.gguf" \

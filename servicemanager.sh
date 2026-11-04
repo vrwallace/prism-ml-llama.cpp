@@ -91,7 +91,10 @@ update_systemd_bonsai() {
     fi
 
     local spec_flags=""
-    if [ "${BONSAI_NGRAM}" = "true" ]; then
+    local draft_path="${MODELS_DIR}/Ternary-Bonsai-27B-dspark-Q4_1.gguf"
+    if [ "${BONSAI_NGRAM}" = "true" ] && [ -f "${draft_path}" ]; then
+        spec_flags=" -md ${draft_path} --spec-type draft-dspark"
+    elif [ "${BONSAI_NGRAM}" = "true" ]; then
         spec_flags=" --spec-type ngram-simple --spec-ngram-simple-size-m 7"
     fi
 
@@ -225,6 +228,13 @@ pause() {
 while true; do
     show_dashboard
     ctx_k=$(( BONSAI_CTX / 1024 ))
+    draft_path="${MODELS_DIR}/Ternary-Bonsai-27B-dspark-Q4_1.gguf"
+    spec_status="OFF"
+    if [ "${BONSAI_NGRAM}" = "true" ] && [ -f "${draft_path}" ]; then
+        spec_status="ON (DSpark Drafter: 2x-3x speed)"
+    elif [ "${BONSAI_NGRAM}" = "true" ]; then
+        spec_status="ON (ngram-simple)"
+    fi
     echo -e "${YELLOW} EXCLUSIVE MODE (100% Dedicated GPU VRAM & Max Speed):${NC}"
     echo -e "  ${GREEN}[1] Run ONLY Gemma 4 12B${NC}           (Stops Bonsai, Starts Gemma4 on Port ${GEMMA_PORT})"
     echo -e "  ${GREEN}[2] Run ONLY Bonsai 2 27B (PTQ1_0)${NC} (Stops Gemma,  Starts Bonsai2 PTQ1_0 on Port ${BONSAI_PORT})"
@@ -241,6 +251,7 @@ while true; do
     echo -e "${YELLOW} TUNING, CONTEXT, LOGS & TOOLS:${NC}"
     echo -e "  [K] Change Bonsai 2 Context Size   (Current: ${BONSAI_CTX} / ${ctx_k}K, KV=${BONSAI_KV} -> 32K / 48K / 64K / 70K / 72K)"
     echo -e "  [V] Toggle Bonsai 2 Variant        (Current: ${BONSAI_VARIANT} -> PTQ1_0 5.95GB vs PQ2_0 7.21GB)"
+    echo -e "  [S] Toggle Speculative Drafter     (Current: ${spec_status})"
     echo -e "  [L] Live Server Logs               (journalctl -u bonsai2 -f)"
     echo -e "  [B] Run GPU Speed Benchmark        (llama-bench)"
     echo -e "  [C] Launch Interactive CLI Chat    (llama-cli)"
@@ -353,6 +364,25 @@ while true; do
             save_config
             update_systemd_bonsai
             echo -e "${GREEN}[SUCCESS] Switched variant to ${BONSAI_VARIANT} (Context: ${BONSAI_CTX}).${NC}"
+            pause
+            ;;
+        S)
+            if [ "${BONSAI_NGRAM}" = "true" ]; then
+                BONSAI_NGRAM="false"
+            else
+                BONSAI_NGRAM="true"
+            fi
+            save_config
+            update_systemd_bonsai
+            dpath="${MODELS_DIR}/Ternary-Bonsai-27B-dspark-Q4_1.gguf"
+            if [ "${BONSAI_NGRAM}" = "true" ] && [ -f "${dpath}" ]; then
+                echo -e "${GREEN}[SUCCESS] Speculative decoding ENABLED with DSpark drafter!${NC}"
+            elif [ "${BONSAI_NGRAM}" = "true" ]; then
+                echo -e "${YELLOW}[!] Speculative decoding enabled (ngram). Download DSpark drafter via ./download_models.sh for 2x-3x speed!${NC}"
+            else
+                echo -e "${YELLOW}[OK] Speculative decoding DISABLED.${NC}"
+            fi
+            echo -e "${YELLOW}[i] Select [2] or [3] to restart Bonsai with updated flags.${NC}"
             pause
             ;;
         L)
