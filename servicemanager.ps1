@@ -141,7 +141,7 @@ function Update-BonsaiXml {
   <name>Ternary Bonsai 2 27B llama.cpp Service</name>
   <description>Native Windows Service (WinSW) for PrismML Ternary Bonsai 2 27B ($($State.BonsaiVariant)) with CUDA 13.4 GPU acceleration</description>
   <executable>$BonsaiDir\bin\llama-server.exe</executable>
-  <arguments>-m "$modelPath" --host 0.0.0.0 --port $($State.BonsaiPort) -c $($State.BonsaiCtx)$kvFlags -np 1 --cache-ram 8192 -ngl 99 -fa on -t 16 -b 2048 -ub 1024 --reasoning off --reasoning-budget 0$specFlags --temp 0.7 --top-p 0.80 --top-k 20 --min-p 0.0 --presence-penalty 1.5</arguments>
+  <arguments>-m "$modelPath" --host 0.0.0.0 --port $($State.BonsaiPort) -c $($State.BonsaiCtx)$kvFlags -np 1 --cache-ram 2048 -ngl 99 -fa on -t 16 -b 2048 -ub 1024 --reasoning off --reasoning-budget 0$specFlags --temp 0.7 --top-p 0.80 --top-k 20 --min-p 0.0 --presence-penalty 1.5</arguments>
   <workingdirectory>$BonsaiDir</workingdirectory>
   <logpath>$BonsaiDir\logs</logpath>
   <log mode="roll"></log>
