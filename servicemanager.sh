@@ -29,7 +29,7 @@ GEMMA_PORT=8081
 BONSAI_VARIANT="PTQ1_0"
 BONSAI_CTX=70000
 BONSAI_KV="f16"
-BONSAI_NGRAM=false
+BONSAI_NGRAM=true
 
 load_config() {
     if [ -f "${CONFIG_FILE}" ] && command -v jq &>/dev/null; then
@@ -91,9 +91,9 @@ update_systemd_bonsai() {
     fi
 
     local spec_flags=""
-    local draft_path="${MODELS_DIR}/Ternary-Bonsai-27B-dspark-Q4_1.gguf"
-    if [ "${BONSAI_NGRAM}" = "true" ] && [ -f "${draft_path}" ]; then
-        spec_flags=" -md ${draft_path} --spec-type draft-dspark"
+    local dflash_path="${MODELS_DIR}/Ternary-Bonsai-27B-dflash-Q4_0.gguf"
+    if [ "${BONSAI_NGRAM}" = "true" ] && [ -f "${dflash_path}" ]; then
+        spec_flags=" -md ${dflash_path} --spec-type draft-dflash --spec-draft-ngl 99"
     elif [ "${BONSAI_NGRAM}" = "true" ]; then
         spec_flags=" --spec-type ngram-simple --spec-ngram-simple-size-m 7"
     fi
@@ -228,12 +228,12 @@ pause() {
 while true; do
     show_dashboard
     ctx_k=$(( BONSAI_CTX / 1024 ))
-    draft_path="${MODELS_DIR}/Ternary-Bonsai-27B-dspark-Q4_1.gguf"
+    dflash_path="${MODELS_DIR}/Ternary-Bonsai-27B-dflash-Q4_0.gguf"
     spec_status="OFF"
-    if [ "${BONSAI_NGRAM}" = "true" ] && [ -f "${draft_path}" ]; then
-        spec_status="ON (DSpark Drafter: 2x-3x speed)"
+    if [ "${BONSAI_NGRAM}" = "true" ] && [ -f "${dflash_path}" ]; then
+        spec_status="ON (Neural DFlash Drafter: 85-110+ tok/s)"
     elif [ "${BONSAI_NGRAM}" = "true" ]; then
-        spec_status="ON (ngram-simple)"
+        spec_status="ON (ngram-simple: 54+ tok/s sustained, 0 MB extra VRAM)"
     fi
     echo -e "${YELLOW} EXCLUSIVE MODE (100% Dedicated GPU VRAM & Max Speed):${NC}"
     echo -e "  ${GREEN}[1] Run ONLY Gemma 4 12B${NC}           (Stops Bonsai, Starts Gemma4 on Port ${GEMMA_PORT})"

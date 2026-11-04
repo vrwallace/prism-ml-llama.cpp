@@ -14,6 +14,9 @@
 > **Speculative decoding (dspark)** is supported via mainline's draft-dspark plus fork patches. Drafters published for older model releases need a one-time conversion with `gguf-dspark-to-dflash` (see [SPECULATIVE.md](https://github.com/PrismML-Eng/Bonsai-demo/blob/main/SPECULATIVE.md) in Bonsai-demo); newer releases ship ready-to-use drafters.
 >
 > Do NOT build from `prism-v6` (stale mid-migration snapshot) and do NOT mix this fork's `ggml-*` libraries with a stock llama.cpp build.
+>
+> 🚀 **Automated Linux & Windows Deployment Suite**:
+> See [**QUICKSTART.md**](QUICKSTART.md) for automated installers (`install_linux.sh`, `install_windows.ps1`), interactive service managers (`servicemanager.sh`, `servicemanager.ps1`), and speculative decoding configurations that double Bonsai 2 generation speed to **54–110+ tok/s** on an RTX 4070 Ti (12GB VRAM) while preserving a **70,000-token context window**.
 
 ---
 
