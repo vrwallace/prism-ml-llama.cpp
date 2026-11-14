@@ -67,7 +67,12 @@ public:
         auto c_mem = dnnl::memory(matmul_pd.dst_desc(), eng, c);
 
         auto scratchpad_md = matmul_pd.scratchpad_desc();
-        auto scratchpad_mem = ctx.get_scratchpad_mem(scratchpad_md, eng, q);
+        // Free the scratchpad before the caller's temporary buffers (VMM requires LIFO).
+        ggml_sycl_pool_alloc<uint8_t> scratchpad(ctx.pool());
+        if (scratchpad_md.get_size() > 0) {
+            scratchpad.alloc(scratchpad_md.get_size());
+        }
+        auto scratchpad_mem = dnnl::memory(scratchpad_md, eng, scratchpad.get());
 
         auto matmul_prim = dnnl::matmul(matmul_pd);
 
