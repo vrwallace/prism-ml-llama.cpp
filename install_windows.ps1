@@ -86,6 +86,20 @@ if (-not (Test-Path $serverExe)) {
 }
 
 if (-not (Test-Path $serverExe)) {
+    $releaseZipUrl = "https://github.com/PrismML-Eng/llama.cpp/releases/download/prism-b12128-d7b2896/llama-prism-b12128-d7b2896-bin-win-cuda-13.3-x64.zip"
+    Write-Host "[+] Downloading prebuilt llama.cpp CUDA engine (Build 12128)..." -ForegroundColor Cyan
+    $zipPath = Join-Path $ScriptDir "llama_cuda_b12128.zip"
+    try {
+        Invoke-WebRequest -Uri $releaseZipUrl -OutFile $zipPath -UseBasicParsing
+        tar -xf $zipPath -C $binDir
+        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+        Write-Host "[OK] Prebuilt CUDA Build 12128 extracted to $binDir" -ForegroundColor Green
+    } catch {
+        Write-Host "[!] Could not download prebuilt package. Checking local compiler..." -ForegroundColor Yellow
+    }
+}
+
+if (-not (Test-Path $serverExe)) {
     $cmake = Get-Command cmake.exe -ErrorAction SilentlyContinue
     $nvcc  = Get-Command nvcc.exe -ErrorAction SilentlyContinue
 
